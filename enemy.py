@@ -14,23 +14,32 @@ class Enemy(Entity):
         self.reward = 10
         self.damage_to_player = 5
         self.reached_end = False
+        self.slow_factor = 1.0
+        self.slow_timer = 0
         
         self.image = pygame.Surface((30, 30))
         self.image.fill(WHITE)
         self.rect = self.image.get_rect(center=self.pos)
         
     def move(self):
+        # Decrement slow timer
+        if self.slow_timer > 0:
+            self.slow_timer -= 1
+            if self.slow_timer <= 0:
+                self.slow_factor = 1.0
+
         if self.target_waypoint_idx < len(self.path_points):
             target = self.path_points[self.target_waypoint_idx]
             direction = target - self.pos
             distance = direction.length()
-            
-            if distance < self.speed:
+            effective_speed = self.speed * self.slow_factor
+
+            if distance < effective_speed:
                 self.pos = target
                 self.target_waypoint_idx += 1
             else:
                 direction = direction.normalize()
-                self.pos += direction * self.speed
+                self.pos += direction * effective_speed
                 
             self.rect.center = self.pos
         else:

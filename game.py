@@ -7,6 +7,8 @@ from ui import UI
 from enemy import CorporateDrone, RiotPolice, CEO
 from tower import NeonLaser, PlasmaBlaster, CyberEMP
 from projectile import Projectile
+from highscore import load_high_score, save_high_score
+from audio import AudioManager
 
 class Game:
     def __init__(self):
@@ -33,7 +35,11 @@ class Game:
         self.enemies_to_spawn = []
         self.spawn_timer = 0
         self.selected_tower = 1 # 1: Laser, 2: Plasma, 3: EMP
-        
+        self.tower_classes = {1: NeonLaser, 2: PlasmaBlaster, 3: CyberEMP}
+        self.score = 0
+        self.high_score = load_high_score()
+        self.audio = AudioManager()
+
         self.running = True
 
     def run(self):
@@ -53,11 +59,16 @@ class Game:
             if event.type == pygame.QUIT:
                 self.running = False
             
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_m:
+                self.audio.toggle()
+                continue
+
             if self.state == "START_MENU":
                 # Start game on any key press or mouse click
                 if event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
                     self.reset_game()
                     self.state = "PLAYING"
+                    self.audio.play_bgm()
             
             elif self.state == "PLAYING":
                 if event.type == pygame.KEYDOWN:
@@ -67,20 +78,33 @@ class Game:
                         self.selected_tower = 2
                     elif event.key == pygame.K_3:
                         self.selected_tower = 3
+                    elif event.key in (pygame.K_p, pygame.K_ESCAPE):
+                        self.state = "PAUSED"
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button == 1: # Left click
                         self.place_tower(event.pos)
+                    elif event.button == 3: # Right click - upgrade tower
+                        self.upgrade_tower(event.pos)
             
+            elif self.state == "PAUSED":
+                if event.type == pygame.KEYDOWN and event.key in (pygame.K_p, pygame.K_ESCAPE):
+                    self.state = "PLAYING"
+
             elif self.state == "GAME_OVER":
                 # Press 'R' to restart
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
                     self.reset_game()
                     self.state = "PLAYING"
+                    self.audio.play_bgm()
 
     def update(self):
         """Update game logic based on the current state."""
         if self.state == "PLAYING":
             if self.health <= 0:
+                save_high_score(self.score)
+                self.high_score = max(self.high_score, self.score)
+                self.audio.stop_bgm()
+                self.audio.play("gameover")
                 self.state = "GAME_OVER"
                 return
                 
@@ -103,6 +127,8 @@ class Game:
                     enemy.kill()
                 elif enemy.health <= 0:
                     self.credits += enemy.reward
+                    self.score += enemy.reward
+                    self.audio.play("death")
                     enemy.kill()
 
     def draw(self):
@@ -112,6 +138,8 @@ class Game:
             self.draw_text("VAPORWAVE DEFENSE", 74, NEON_PINK, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 3)
             self.draw_text("LATE STAGE CAPITALISM", 48, CYAN, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 30)
             self.draw_text("Press Any Key To Interface", 36, NEON_GREEN, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50)
+            if self.high_score > 0:
+                self.draw_text(f"HIGH SCORE: {self.high_score}", 32, YELLOW, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 110)
             
         elif self.state == "PLAYING":
             self.screen.fill(DARK_PURPLE)
@@ -123,16 +151,17 @@ class Game:
                 enemy.draw_health_bar(self.screen)
                 
             self.towers.draw(self.screen)
+            for tower in self.towers.sprites():
+                tower.draw_level_indicator(self.screen)
             self.projectiles.draw(self.screen)
             
             # --- Draw Placement Hologram ---
             mx, my = pygame.mouse.get_pos()
-            if 50 < my < SCREEN_HEIGHT - 50:
+            if UI_BAR_HEIGHT < my < SCREEN_HEIGHT - UI_BAR_HEIGHT:
                 grid_x = (mx // TILE_SIZE) * TILE_SIZE + TILE_SIZE // 2
                 grid_y = (my // TILE_SIZE) * TILE_SIZE + TILE_SIZE // 2
                 
-                tower_classes = {1: NeonLaser, 2: PlasmaBlaster, 3: CyberEMP}
-                selected_class = tower_classes[self.selected_tower]
+                selected_class = self.tower_classes[self.selected_tower]
                 dummy = selected_class((grid_x, grid_y), [])
                 
                 ghost_img = dummy.image.copy()
@@ -150,14 +179,50 @@ class Game:
                 
                 pygame.draw.circle(self.screen, RED if invalid else CYAN, (grid_x, grid_y), dummy.range, 1)
             # -------------------------------
-            
-            self.ui.draw(self.screen, self.health, self.credits, self.wave, self.selected_tower)
-            
+
+            # --- Upgrade Tooltip ---
+            mx, my = pygame.mouse.get_pos()
+            for tower in self.towers.sprites():
+                if tower.rect.collidepoint((mx, my)):
+                    if tower.can_upgrade():
+                        tip = f"Right-click: Upgrade Lv{tower.tower_level}>{tower.tower_level+1} (${tower.upgrade_cost})"
+                        color = NEON_GREEN if self.credits >= tower.upgrade_cost else RED
+                    else:
+                        tip = "MAX LEVEL"
+                        color = YELLOW
+                    tip_surf = pygame.font.Font(None, 24).render(tip, True, color)
+                    tip_rect = tip_surf.get_rect(midbottom=(tower.rect.centerx, tower.rect.top - 4))
+                    self.screen.blit(tip_surf, tip_rect)
+                    # Show range circle for hovered tower
+                    pygame.draw.circle(self.screen, CYAN, tower.rect.center, tower.range, 1)
+                    break
+            # ----------------------
+
+            self.ui.draw(self.screen, self.health, self.credits, self.wave, self.selected_tower, self.score)
+
+        elif self.state == "PAUSED":
+            # Draw the game state underneath
+            self.screen.fill(DARK_PURPLE)
+            self.draw_grid()
+            self.level.draw(self.screen)
+            self.enemies.draw(self.screen)
+            self.towers.draw(self.screen)
+            self.projectiles.draw(self.screen)
+            self.ui.draw(self.screen, self.health, self.credits, self.wave, self.selected_tower, self.score)
+            # Semi-transparent overlay
+            overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 150))
+            self.screen.blit(overlay, (0, 0))
+            self.draw_text("PAUSED", 80, NEON_PINK, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 3)
+            self.draw_text("Press 'P' or 'ESC' to Resume", 36, CYAN, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+
         elif self.state == "GAME_OVER":
             self.screen.fill(GRID_COLOR)
             self.draw_text("BANKRUPT", 80, RED, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 3)
-            self.draw_text("THE CORPORATION COLLECTS", 40, CYAN, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
-            self.draw_text("Press 'R' to Refinance (Restart)", 32, WHITE, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 60)
+            self.draw_text("THE CORPORATION COLLECTS", 40, CYAN, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 20)
+            self.draw_text(f"SCORE: {self.score}", 40, NEON_GREEN, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 30)
+            self.draw_text(f"HIGH SCORE: {self.high_score}", 32, YELLOW, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 70)
+            self.draw_text("Press 'R' to Refinance (Restart)", 32, WHITE, SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 120)
 
         pygame.display.flip()
 
@@ -185,6 +250,7 @@ class Game:
         self.health = STARTING_HEALTH
         self.credits = STARTING_CREDITS
         self.wave = 0
+        self.score = 0
         self.enemies.empty()
         self.towers.empty()
         self.projectiles.empty()
@@ -194,17 +260,34 @@ class Game:
         
     def start_next_wave(self):
         self.wave += 1
-        # Simple progression logic: more drones, then riot police, then CEOs
-        num_drones = 5 + self.wave * 2
-        num_riot = self.wave // 2
-        num_ceo = 1 if self.wave % 5 == 0 else 0
-        
-        self.enemies_to_spawn = [CorporateDrone] * num_drones + [RiotPolice] * num_riot + [CEO] * num_ceo
-        self.spawn_timer = 60
+        self.audio.play("wave")
+        # Aggressive scaling: exponential drone growth, early riot police, frequent CEOs
+        num_drones = 8 + self.wave * 3 + self.wave ** 2 // 4
+        num_riot = max(0, self.wave - 1) + self.wave // 2
+        num_ceo = self.wave // 3
+
+        # Interleave enemy types for pressure instead of all drones first
+        enemies = []
+        drones_left, riot_left, ceo_left = num_drones, num_riot, num_ceo
+        while drones_left or riot_left or ceo_left:
+            # Spawn a batch: 3 drones, then 1 riot, then 1 CEO
+            for _ in range(min(3, drones_left)):
+                enemies.append(CorporateDrone)
+                drones_left -= 1
+            if riot_left > 0:
+                enemies.append(RiotPolice)
+                riot_left -= 1
+            if ceo_left > 0:
+                enemies.append(CEO)
+                ceo_left -= 1
+
+        self.enemies_to_spawn = enemies
+        # Faster spawning as waves progress
+        self.spawn_timer = max(FPS // 3, FPS - self.wave * 3)
         
     def place_tower(self, pos):
         # Prevent placing on UI
-        if pos[1] < 50 or pos[1] > SCREEN_HEIGHT - 50:
+        if pos[1] < UI_BAR_HEIGHT or pos[1] > SCREEN_HEIGHT - UI_BAR_HEIGHT:
             return
             
         # Snap to grid center
@@ -223,8 +306,7 @@ class Game:
             if tower.rect.collidepoint(snap_pos):
                 return
                 
-        tower_classes = {1: NeonLaser, 2: PlasmaBlaster, 3: CyberEMP}
-        selected_class = tower_classes[self.selected_tower]
+        selected_class = self.tower_classes[self.selected_tower]
         
         # We need a dummy instance just to check cost, or map consts
         dummy = selected_class((0,0), [])
@@ -233,6 +315,17 @@ class Game:
         if self.credits >= cost:
             self.credits -= cost
             selected_class(snap_pos, [self.towers])
+            self.audio.play("place")
             
-    def create_projectile(self, pos, target, damage):
-        Projectile(pos, target, damage, [self.projectiles])
+    def upgrade_tower(self, pos):
+        for tower in self.towers.sprites():
+            if tower.rect.collidepoint(pos):
+                if tower.can_upgrade() and self.credits >= tower.upgrade_cost:
+                    self.credits -= tower.upgrade_cost
+                    tower.upgrade()
+                    self.audio.play("place")
+                return
+
+    def create_projectile(self, pos, target, damage, tower_type="generic"):
+        Projectile(pos, target, damage, [self.projectiles], tower_type)
+        self.audio.play("shoot")

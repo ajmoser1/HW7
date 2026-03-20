@@ -11,7 +11,43 @@ class Tower(Entity):
         self.cooldown = 60 # wait frames
         self.timer = 0
         self.cost = 100
-        
+        self.tower_type = "generic"
+        self.tower_level = 1
+        self.max_level = 3
+
+    @property
+    def upgrade_cost(self):
+        return int(self.cost * 0.6 * self.tower_level)
+
+    def can_upgrade(self):
+        return self.tower_level < self.max_level
+
+    def upgrade(self):
+        if not self.can_upgrade():
+            return False
+        self.tower_level += 1
+        self.damage = int(self.damage * 1.4)
+        self.range = int(self.range * 1.15)
+        self.cooldown = max(3, int(self.cooldown * 0.85))
+        # Tint the sprite to show upgrade level
+        if hasattr(self, 'original_image') and self.original_image:
+            tint = pygame.Surface(self.original_image.get_size(), pygame.SRCALPHA)
+            if self.tower_level == 2:
+                tint.fill((255, 255, 100, 40))
+            elif self.tower_level == 3:
+                tint.fill((255, 180, 0, 60))
+            self.original_image.blit(tint, (0, 0))
+            self.image = self.original_image.copy()
+            self.rect = self.image.get_rect(center=self.pos)
+        return True
+
+    def draw_level_indicator(self, surface):
+        if self.tower_level > 1:
+            for i in range(self.tower_level - 1):
+                x = self.rect.left + 4 + i * 8
+                y = self.rect.bottom - 6
+                pygame.draw.circle(surface, YELLOW, (x, y), 3)
+
     def draw_range(self, surface):
         circle_surf = pygame.Surface((self.range * 2, self.range * 2), pygame.SRCALPHA)
         pygame.draw.circle(circle_surf, (*CYAN, 50), (self.range, self.range), self.range)
@@ -31,7 +67,7 @@ class Tower(Entity):
                 self.rect = self.image.get_rect(center=self.pos)
                 
             if self.timer <= 0:
-                shoot_callback(self.rect.center, target, self.damage)
+                shoot_callback(self.rect.center, target, self.damage, self.tower_type)
                 self.timer = self.cooldown
                 
         if self.timer > 0:
@@ -55,6 +91,7 @@ class NeonLaser(Tower):
         self.cooldown = 20
         self.cost = 50
         self.name = "Neon Laser"
+        self.tower_type = "laser"
         
         img = load_sprite("laser.png", (TILE_SIZE, TILE_SIZE))
         if img:
@@ -74,6 +111,7 @@ class PlasmaBlaster(Tower):
         self.cooldown = 90
         self.cost = 150
         self.name = "Plasma Blaster"
+        self.tower_type = "plasma"
         
         img = load_sprite("plasma.png", (TILE_SIZE, TILE_SIZE))
         if img:
@@ -88,12 +126,13 @@ class PlasmaBlaster(Tower):
 class CyberEMP(Tower):
     def __init__(self, pos, groups):
         super().__init__(pos, groups)
-        # EMP slows enemies down, handled via special damage later or just fast low damage
-        self.range = 120
-        self.damage = 2
+        # EMP slows enemies down with fast low damage + slow debuff
+        self.range = 180
+        self.damage = 3
         self.cooldown = 10
-        self.cost = 200
+        self.cost = 125
         self.name = "Cyber EMP"
+        self.tower_type = "emp"
         
         img = load_sprite("emp.png", (TILE_SIZE, TILE_SIZE))
         if img:

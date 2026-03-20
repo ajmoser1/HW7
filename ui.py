@@ -5,10 +5,16 @@ class UI:
     def __init__(self):
         try:
             self.font = pygame.font.Font(None, 36)
+            self.hud_font = pygame.font.Font(None, 28)
         except:
             self.font = pygame.font.SysFont('Arial', 36)
+            self.hud_font = pygame.font.SysFont('Arial', 24)
+        # Cache tower sprites for HUD (avoid reloading every frame)
+        self.laser_spr = load_sprite("laser.png", (36, 36))
+        self.plasma_spr = load_sprite("plasma.png", (36, 36))
+        self.emp_spr = load_sprite("emp.png", (36, 36))
 
-    def draw(self, surface, health, credits, wave, selected_tower_id=1):
+    def draw(self, surface, health, credits, wave, selected_tower_id=1, score=0):
         sw = surface.get_width()
         sh = surface.get_height()
         
@@ -16,20 +22,19 @@ class UI:
         pygame.draw.rect(surface, MENU_BLUE, (0, 0, sw, 50))
         pygame.draw.line(surface, CYAN, (0, 50), (sw, 50), 3)
         
-        # Corporate Integrity (Health)
+        # Top HUD: 4 evenly spaced items
+        col_w = sw // 4
         health_color = NEON_GREEN if health > 40 else RED
-        health_text = self.font.render(f"INTEGRITY: {health}%", True, health_color)
-        surface.blit(health_text, (20, 15))
-        
-        # Financial Assets (Credits)
-        credits_text = self.font.render(f"ASSETS: ${credits}M", True, YELLOW)
-        credits_rect = credits_text.get_rect(center=(sw // 2, 25))
-        surface.blit(credits_text, credits_rect)
-        
-        # Fiscal Quarter (Wave)
-        wave_text = self.font.render(f"Q{wave} TARGET", True, NEON_BLUE)
-        wave_rect = wave_text.get_rect(right=sw - 20, centery=25)
-        surface.blit(wave_text, wave_rect)
+        items = [
+            (f"INTEGRITY: {health}%", health_color),
+            (f"ASSETS: ${credits}M", YELLOW),
+            (f"SCORE: {score}", NEON_PINK),
+            (f"Q{wave} TARGET", NEON_BLUE),
+        ]
+        for i, (text, color) in enumerate(items):
+            surf = self.hud_font.render(text, True, color)
+            rect = surf.get_rect(center=(col_w * i + col_w // 2, 25))
+            surface.blit(surf, rect)
         
         # Bottom HUD for tower selection
         pygame.draw.rect(surface, MENU_BLUE, (0, sh - 50, sw, 50))
@@ -39,9 +44,9 @@ class UI:
         c2 = NEON_PINK if selected_tower_id == 2 else WHITE
         c3 = NEON_PINK if selected_tower_id == 3 else WHITE
         
-        laser_spr = load_sprite("laser.png", (36, 36))
-        plasma_spr = load_sprite("plasma.png", (36, 36))
-        emp_spr = load_sprite("emp.png", (36, 36))
+        laser_spr = self.laser_spr
+        plasma_spr = self.plasma_spr
+        emp_spr = self.emp_spr
         
         x_offset = 20
         
@@ -74,7 +79,7 @@ class UI:
         if emp_spr: surface.blit(emp_spr, (x_offset, sh - 43))
         else: pygame.draw.polygon(surface, NEON_GREEN, [(x_offset+15, sh - 40), (x_offset+30, sh - 25), (x_offset+15, sh - 10), (x_offset, sh - 25)])
         x_offset += 42
-        t3_cost = self.font.render("$200", True, c3)
+        t3_cost = self.font.render("$125", True, c3)
         surface.blit(t3_cost, (x_offset, sh - 35))
         
         # Active HUD Item

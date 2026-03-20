@@ -22,6 +22,8 @@ TILE_SIZE = 64
 ROWS = SCREEN_HEIGHT // TILE_SIZE
 COLS = SCREEN_WIDTH // TILE_SIZE
 
+UI_BAR_HEIGHT = 50
+
 # Starting state
 STARTING_HEALTH = 100
 STARTING_CREDITS = 500  # Corporate Credits
@@ -40,7 +42,6 @@ def load_sprite(filename, size):
     if os.path.exists(path):
         try:
             img = pygame.image.load(path).convert_alpha()
-            img.set_colorkey((0, 0, 0)) # Makes black pixels transparent for AI sprites
             scaled = pygame.transform.scale(img, size)
             _IMAGE_CACHE[cache_key] = scaled
             return scaled.copy()
